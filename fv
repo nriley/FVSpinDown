@@ -1,0 +1,85 @@
+#!/usr/bin/python
+
+# usage: fv <unlock|eject> <volume name substring>
+
+import plistlib
+import re
+import subprocess
+import sys
+
+action, lv_name_substring = sys.argv[1:]
+
+def output(*args):
+	return subprocess.check_output(args).rstrip('\n')
+
+def diskutil(*args):
+	return output('/usr/sbin/diskutil', *args)
+
+def lv_password(uuid):
+	return output('/usr/bin/security', 'find-generic-password',
+				  '-D', 'Encrypted Volume Password', '-s', uuid, '-w')
+
+# find matching volume names (LVs or not)
+disks = set()
+mounted_disks = set()
+diskutil_plist = plistlib.readPlistFromString(diskutil('list', '-plist'))
+for disk_or_partition_info in diskutil_plist['AllDisksAndPartitions']:
+	volume_name = disk_or_partition_info.get('VolumeName')
+	if volume_name is None:
+		continue
+	if lv_name_substring in volume_name:
+		disk = disk_or_partition_info['DeviceIdentifier']
+		disks.add(disk)
+		if 'MountPoint' in disk_or_partition_info:
+			mounted_disks.add(disk)
+
+diskutil_list = iter(diskutil('list').split('\n'))
+disk = None
+
+pv_lv_uuids = {}
+
+# wouldn't it be nice if the plist output contained what I need?
+for l in diskutil_list:
+	if l.startswith('/dev/'):
+		disk = re.match(r'/dev/(.*)$', l).group(1)
+		assert diskutil_list.next().startswith('   #:')
+		if disk not in disks:
+			disk = None
+		continue
+	if disk is None:
+		continue
+
+	# match a LV, which should have HFS as partition 0
+	if l.find('Apple_HFS') != 23:
+		disk = None; continue
+
+	#                                 Logical Volume [...]on disk3s2
+	m = re.match(' {33}Logical Volume.*on (disk.*)$', diskutil_list.next())
+	if not m:
+		disk = None; continue
+	pv = m.group(1)
+
+	#                                 31071869-67F6-4B20-A70B-6BFF00CD8D1A
+	lv_uuid = diskutil_list.next()[33:]
+
+	#                                 Unlocked Encrypted
+	if diskutil_list.next()[33:].startswith('Unlocked'):
+		lv_uuid = None
+
+	pv_lv_uuids.setdefault(pv, {})[disk] = lv_uuid
+
+if action == 'unlock':
+	for lv_uuids in pv_lv_uuids.itervalues():
+		for lv_uuid in lv_uuids.itervalues():
+			if lv_uuid is not None:
+				diskutil('cs', 'unlockVolume', lv_uuid,
+						 '-passphrase', lv_password(lv_uuid))
+elif action == 'eject':
+	for pv, lv_uuids in pv_lv_uuids.iteritems():
+		for disk in lv_uuids:
+			if disk in mounted_disks:
+				diskutil('eject', disk)
+		diskutil('eject', pv)
+else:
+	import pprint
+	pprint.pprint(pv_lv_uuids)
