@@ -2,6 +2,10 @@
 
 # usage: fv <unlock|eject> <volume name substring>
 
+# please note: there have been changes in behavior in recent macOS versions in
+# Core Storage; the below works on my Mac on 10.12, but that's about all I can
+# guarantee.
+
 import plistlib
 import re
 import subprocess
@@ -20,6 +24,14 @@ def lv_password(uuid):
 				  '-D', 'Encrypted Volume Password', '-s', uuid, '-w')
 
 # find matching volume names (LVs or not)
+# note that as of 10.12.6:
+# - diskutil list -plist only contains volume names of mounted, unlocked volumes
+# - diskutil list also contains volume names of unmounted, locked volumes
+# - you must use diskutil cs list to see names of unmounted, unlocked volumes
+#   (which this script doesn't do)
+# - diskutil cs unlockVolume doesn't mount a volume after unlocking it
+# - if you try diskutil mount immediately after unlocking, it fails until the
+#   disk spins up so you have to repeat it
 disks = set()
 mounted_disks = set()
 diskutil_plist = plistlib.readPlistFromString(diskutil('list', '-plist'))
@@ -40,11 +52,10 @@ pv_lv_uuids = {}
 
 # wouldn't it be nice if the plist output contained what I need?
 for l in diskutil_list:
+	# /dev/disk8 (external, virtual):
 	if l.startswith('/dev/'):
-		disk = re.match(r'/dev/(.*)$', l).group(1)
+		disk = re.match(r'/dev/([^ ]*)', l).group(1)
 		assert diskutil_list.next().startswith('   #:')
-		if disk not in disks:
-			disk = None
 		continue
 	if disk is None:
 		continue
@@ -54,10 +65,15 @@ for l in diskutil_list:
 		disk = None; continue
 
 	#                                 Logical Volume [...]on disk3s2
-	m = re.match(' {33}Logical Volume.*on (disk.*)$', diskutil_list.next())
+	m = re.match(' {33}Logical Volume(?:( .* )| )on (disk.*)$', diskutil_list.next())
 	if not m:
 		disk = None; continue
-	pv = m.group(1)
+	if disk not in disks:
+		lv_name = m.group(1)
+		if not lv_name or lv_name_substring not in lv_name:
+			# either an unmounted but unlocked LV, or an nonmatching one; ignore it
+			disk = None; continue
+	pv = m.group(2)
 
 	#                                 31071869-67F6-4B20-A70B-6BFF00CD8D1A
 	lv_uuid = diskutil_list.next()[33:]
@@ -72,8 +88,17 @@ if action == 'unlock':
 	for lv_uuids in pv_lv_uuids.itervalues():
 		for lv_uuid in lv_uuids.itervalues():
 			if lv_uuid is not None:
+				# in 10.12.6, this doesn't actually mount the volume
+                # despite what 'diskutil cs' suggests
 				diskutil('cs', 'unlockVolume', lv_uuid,
 						 '-passphrase', lv_password(lv_uuid))
+				# ...which was probably because mounting failed
+				while True:
+					try:
+						diskutil('mount', lv_uuid)
+						break
+					except subprocess.CalledProcessError:
+						pass
 elif action == 'eject':
 	for pv, lv_uuids in pv_lv_uuids.iteritems():
 		for disk in lv_uuids:
