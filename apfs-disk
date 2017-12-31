@@ -1,0 +1,34 @@
+#!/usr/bin/python
+
+# usage: apfs-disk <volume name substring>
+
+import plistlib
+import subprocess
+import sys
+
+action, vol_name_substring = sys.argv[1:]
+
+def output(*args):
+    return subprocess.check_output(args).rstrip('\n')
+
+def diskutil(*args):
+    return output('/usr/sbin/diskutil', *args)
+
+if __name__ == '__main__':
+    diskutil_plist = plistlib.readPlistFromString(diskutil('apfs', 'list', '-plist'))
+    store_volume = {}
+    for container_info in diskutil_plist['Containers']:
+        physical_store = container_info['DesignatedPhysicalStore']
+        for volume_info in container_info['Volumes']:
+            if volume_info['Roles']:
+                continue # not a regular volume (e.g., preboot, recovery, VM)
+            volume_name = volume_info['Name']
+            if vol_name_substring in volume_name:
+                store_volume.setdefault(physical_store, []).append(volume_name)
+
+    if action == 'eject':
+        for store in store_volume.iterkeys():
+            diskutil('eject', store)
+    else:
+        import pprint
+        pprint.pprint(store_volume)
