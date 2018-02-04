@@ -1,6 +1,6 @@
 #!/usr/bin/python
 
-# usage: fv <unlock|eject> <volume name substring>
+# usage: fv <print|unlock|eject> <volume name substring>
 
 # please note: there have been changes in behavior in recent macOS versions in
 # Core Storage; the below works on my Mac on 10.12, but that's about all I can

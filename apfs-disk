@@ -1,6 +1,6 @@
 #!/usr/bin/python
 
-# usage: apfs-disk <volume name substring>
+# usage: apfs-disk <print|eject> <volume name substring>
 
 import plistlib
 import subprocess
