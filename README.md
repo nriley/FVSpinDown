@@ -1,7 +1,7 @@
 # FVSpinDown
 Scripts to automatically unlock and eject FileVault volumes so external drives spin down when not in use.  I have it scheduled via `launchd` jobs to run pre- and post- SuperDuper! clones.
 
-One version is provided for encrypted Core Storage volumes (`fv`) and one version for APFS (`apfs-disk`).
+One version is provided for encrypted Core Storage volumes (`fv`) and one version for APFS (`apfs-disk`, which currently only handles ejecting).
 
 Core Storage configurations of this type are increasingly unsupported by Apple as of macOS 10.12.  When launching Disk Utility, you will see:
 
