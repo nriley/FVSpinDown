@@ -3,8 +3,8 @@
 # usage: fv <print|unlock|eject> <volume name substring>
 
 # please note: there have been changes in behavior in recent macOS versions in
-# Core Storage; the below works on my Mac on 10.12, but that's about all I can
-# guarantee.
+# Core Storage; the below works on my Mac on 10.13.4, but that's about all I
+# can guarantee.
 
 import plistlib
 import re
@@ -20,8 +20,13 @@ def diskutil(*args):
 	return output('/usr/sbin/diskutil', *args)
 
 def lv_password(uuid):
-	return output('/usr/bin/security', 'find-generic-password',
-				  '-D', 'Encrypted Volume Password', '-s', uuid, '-w')
+	password = output('/usr/bin/security', 'find-generic-password',
+					  '-D', 'Encrypted Volume Password', '-s', uuid, '-w')
+	try:
+		password = password.decode('hex').rstrip('\x00')
+	except TypeError: # it's actually the password
+		pass
+	return password
 
 # find matching volume names (LVs or not)
 # note that as of 10.12.6:
