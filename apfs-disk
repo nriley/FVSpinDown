@@ -15,7 +15,8 @@ def diskutil(*args):
     return output('/usr/sbin/diskutil', *args)
 
 if __name__ == '__main__':
-    diskutil_plist = plistlib.readPlistFromString(diskutil('apfs', 'list', '-plist'))
+    diskutil_plist = plistlib.readPlistFromString(
+        diskutil('apfs', 'list', '-plist'))
     store_volume = {}
     for container_info in diskutil_plist['Containers']:
         physical_store = container_info['DesignatedPhysicalStore']
