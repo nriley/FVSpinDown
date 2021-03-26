@@ -1,6 +1,6 @@
 #!/usr/bin/python
 
-# usage: apfs-disk <print|eject> <volume name substring> [volume role ...]
+# usage: apfs-disk <print|mount|eject> <volume name substring> [volume role ...]
 
 import plistlib
 import subprocess
@@ -14,6 +14,11 @@ def output(*args):
 
 def diskutil(*args):
     return output('/usr/sbin/diskutil', *args)
+
+def volume_passphrase(volume_uuid):
+    return output('/usr/bin/security', 'find-generic-password',
+                  '-D', 'Encrypted Volume Password',
+                  '-s', volume_uuid, '-w').decode('hex').rstrip('\0')
 
 if __name__ == '__main__':
     diskutil_plist = plistlib.readPlistFromString(
@@ -30,11 +35,26 @@ if __name__ == '__main__':
                 continue
             volume_name = volume_info['Name']
             if vol_name_substring in volume_name:
-                store_volume.setdefault(physical_store, []).append(volume_name)
-
+                store_volume.setdefault(physical_store, []).append(dict(
+                    name=volume_name,
+                    locked=volume_info['Locked'],
+                    device=volume_info['DeviceIdentifier'],
+                    uuid=volume_info['APFSVolumeUUID']))
     if action == 'eject':
         for store in store_volume.iterkeys():
-            diskutil('eject', store)
+            diskutil(action, store)
+    elif action == 'mount':
+        for volumes_info in store_volume.itervalues():
+            for volume_info in volumes_info:
+                volume = volume_info['device']
+                if volume_info['locked']:
+                    volume_uuid = volume_info['uuid']
+                    passphrase = volume_passphrase(volume_uuid)
+                    # XXX note: leaks passphrase on command line
+                    diskutil('apfs', 'unlockVolume', volume_uuid,
+                             '-passphrase', passphrase)
+                else:
+                    diskutil('mount', volume)
     else:
         import pprint
         pprint.pprint(store_volume)
