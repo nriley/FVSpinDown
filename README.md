@@ -2,9 +2,11 @@
 
 Scripts to automatically unlock and eject FileVault volumes so
 external drives spin down when not in use.  I have them scheduled via
-`launchd` jobs to run pre- and post- SuperDuper! clones, or on Big Sur
-where SuperDuper! doesn't work yet, to mount a Time Machine volume for
-a few hours overnight.
+`launchd` jobs to run pre- and post- SuperDuper! clones, or to mount a
+Time Machine volume for a few hours overnight.
+
+In current macOS, apfs-disk requires Command Line Tools for Xcode to be
+installed, or another Python 3 distribution.
 
 One version is provided for encrypted Core Storage volumes (`fv`) and
 one version for APFS volumes (`apfs-disk`), which may or may not be
