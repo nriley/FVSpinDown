@@ -1,30 +1,42 @@
-#!/usr/bin/python
+#!/usr/bin/python3
 
 # usage: apfs-disk <print|mount|eject> <volume name substring> [volume role ...]
 
+from codecs import decode
 import plistlib
 import subprocess
 import sys
 
-action, vol_name_substring = sys.argv[1:3]
-vol_roles_allowed = frozenset(sys.argv[3:])
-
 def output(*args):
-    return subprocess.check_output(args).rstrip('\n')
+    print(args)
+    # Send stderr to stdout because anything writing to stderr
+    # (regardless of the script error code) causes SuperDuper!
+    # to think that the process failed
+    return subprocess.check_output(
+        args, stderr=subprocess.STDOUT).rstrip(b'\n')
 
 def diskutil(*args):
     return output('/usr/sbin/diskutil', *args)
 
+def diskutil_plist(*args):
+    return plistlib.loads(diskutil(*args))
+
 def volume_passphrase(volume_uuid):
-    return output('/usr/bin/security', 'find-generic-password',
-                  '-D', 'Encrypted Volume Password',
-                  '-s', volume_uuid, '-w').decode('hex').rstrip('\0')
+    # XXX version installed on Pascal
+    # return output('/usr/bin/security', 'find-generic-password',
+    #               '-a', volume_uuid, '-w').decode('hex').rstrip('\0')
+    return decode(
+        output('/usr/bin/security', 'find-generic-password',
+               '-D', 'Encrypted Volume Password',
+               '-s', volume_uuid, '-w'), 'hex').rstrip('\0')
 
 if __name__ == '__main__':
-    diskutil_plist = plistlib.readPlistFromString(
-        diskutil('apfs', 'list', '-plist'))
+    action, vol_name_substring = sys.argv[1:3]
+    vol_roles_allowed = frozenset(sys.argv[3:])
+
+    apfs_list = diskutil_plist('apfs', 'list', '-plist')
     store_volume = {}
-    for container_info in diskutil_plist['Containers']:
+    for container_info in apfs_list['Containers']:
         physical_store = container_info['DesignatedPhysicalStore']
         for volume_info in container_info['Volumes']:
             volume_roles = frozenset(volume_info['Roles'])
@@ -41,13 +53,27 @@ if __name__ == '__main__':
                     device=volume_info['DeviceIdentifier'],
                     uuid=volume_info['APFSVolumeUUID']))
     if action == 'eject':
-        for store in store_volume.iterkeys():
-            diskutil(action, store)
+        for store in store_volume.keys():
+            try:
+                diskutil(action, store)
+            except subprocess.CalledProcessError as e:
+                # As of macOS 12.5, sometimes diskutil eject will 'fail'
+                # although ejecting succeeded
+                store_info = diskutil_plist('info', '-plist', store)
+                if store_info.get('MountPoint', '') != '':
+                    raise e
+                else:
+                    # Counter the incorrect message printed by diskutil
+                    print(f'apfs-disk: Ejecting {store} actually succeeded')
     elif action == 'mount':
-        for volumes_info in store_volume.itervalues():
+        for volumes_info in store_volume.values():
             for volume_info in volumes_info:
                 volume = volume_info['device']
                 if volume_info['locked']:
+                    # XXX version installed on Pascal
+                    # passphrase = volume_passphrase(volume_info['uuid'])
+                    # diskutil('apfs', 'unlockVolume', volume,
+                    #          '-passphrase', passphrase)
                     volume_uuid = volume_info['uuid']
                     passphrase = volume_passphrase(volume_uuid)
                     # XXX note: leaks passphrase on command line
